@@ -73,10 +73,17 @@ struct PropertyMetaInfo<calls_indirectly_key::value_t<Set>> {
 } // namespace _V1
 } // namespace sycl
 
+template<typename T = void>
+struct void_or_T {
+  using type = T;
+};
+
 #ifdef __SYCL_DEVICE_ONLY__
 #define SYCL_EXT_ONEAPI_INDIRECTLY_CALLABLE(SetId)                             \
-  __attribute__((sycl_device)) [[__sycl_detail__::add_ir_attribute_function(   \
-      "indirectly-callable", __builtin_sycl_unique_stable_name(SetId))]]
+  [[__sycl_detail__::add_ir_attributes_function(                               \
+      "indirectly-callable",                                                   \
+      __builtin_sycl_unique_stable_name(                                       \
+          void_or_T<SetId>::type))]] __attribute__((sycl_device))
 #else
 
 #define SYCL_EXT_ONEAPI_INDIRECTLY_CALLABLE(SetId)

@@ -767,8 +767,7 @@ void CodeGenVTables::addVTableComponent(ConstantArrayBuilder &builder,
       // were marked as device functions.
       const CXXMethodDecl *MD = cast<CXXMethodDecl>(GD.getDecl());
       if (!MD->hasAttr<SYCLDeviceAttr>())
-        return builder.add(
-            llvm::ConstantExpr::getNullValue(CGM.DefaultInt8PtrTy));
+        return builder.add(llvm::ConstantExpr::getNullValue(CGM.Int8PtrTy));
     }
 
     auto getSpecialVirtualFn = [&](StringRef name) -> llvm::Constant * {
