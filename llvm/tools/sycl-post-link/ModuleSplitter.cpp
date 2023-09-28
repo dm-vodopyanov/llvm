@@ -9,6 +9,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "ModuleSplitter.h"
+#include "VirtualFunctions.h"
 #include "Support.h"
 
 #include "llvm/ADT/SetVector.h"
@@ -569,6 +570,7 @@ void ModuleDesc::cleanup() {
   MAM.registerPass([&] { return PassInstrumentationAnalysis(); });
   ModulePassManager MPM;
   // Do cleanup.
+  MPM.addPass(VirtualFunctionsPass());
   MPM.addPass(GlobalDCEPass());           // Delete unreachable globals.
   MPM.addPass(StripDeadDebugInfoPass());  // Remove dead debug info.
   MPM.addPass(StripDeadPrototypesPass()); // Remove dead func decls.
@@ -897,6 +899,10 @@ getDeviceCodeSplitter(ModuleDesc &&MD, IRSplitMode Mode, bool IROutputOnly,
         sycl::utils::ATTR_SYCL_OPTLEVEL);
     break;
   }
+
+  // Regardless of device code split mode, we need to outline all virtual
+  // functions into a separate device image.
+  Categorizer.registerSimpleStringAttributeRule("indirectly-callable");
 
   // std::map is used here to ensure stable ordering of entry point groups,
   // which is based on their contents, this greatly helps LIT tests
