@@ -165,6 +165,10 @@ public:
       if (isKernel(F))
         continue;
 
+      // Note: functions marked with "indirectly-callable" attribute are virtual
+      // functions. They are handled differently and therefore are not
+      // considered to be indirect callee candidates here.
+
       // Only functions which are marked with "referenced-indireclty" attribute
       // are considered to be indirect callee candidates.
       if (!F.hasFnAttribute("referenced-indirectly"))
@@ -176,8 +180,12 @@ public:
     // We add every function into the graph
     for (const auto &F : M.functions()) {
       // case (1), see comment above the class definition
-      for (const Value *U : F.users())
-        addUserToGraphRecursively(cast<const User>(U), &F);
+      // Functions marked with "indirectly-callable" attribute are virtual
+      // functions. They are handled differently and therefore are not
+      // considered here as dependencies.
+      if (!F.hasFnAttribute("indirectly-callable"))
+        for (const Value *U : F.users())
+          addUserToGraphRecursively(cast<const User>(U), &F);
 
       // case (2), see comment above the class definition
       for (const auto &I : instructions(F)) {
