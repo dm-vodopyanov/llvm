@@ -55,7 +55,7 @@ struct PropertyMetaInfo<indirectly_callable_key::value_t<Set>> {
 
 template <typename First, typename... Rest>
 struct PropertyMetaInfo<calls_indirectly_key::value_t<First, Rest...>> {
-  static constexpr const char *name = "uses-indirectly-callable";
+  static constexpr const char *name = "calls-indirectly";
   static constexpr const char *value =
 #ifdef __SYCL_DEVICE_ONLY__
       // FIXME: we should handle Rest... here as well

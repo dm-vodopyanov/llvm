@@ -1220,6 +1220,10 @@ ProgramManager::ProgramPtr ProgramManager::build(
     LinkPrograms = getDeviceLibPrograms(Context, Device, DeviceLibReqMask);
   }
 
+  // TODO: gather images which provide necessary virtual functions
+  // TODO: gather images which use the same virtual functions as the current
+  // one, if they are compatible with the target device
+
   static const char *ForceLinkEnv = std::getenv("SYCL_FORCE_LINK");
   static bool ForceLink = ForceLinkEnv && (*ForceLinkEnv == '1');
 
