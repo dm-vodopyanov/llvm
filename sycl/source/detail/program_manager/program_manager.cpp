@@ -1306,6 +1306,16 @@ void ProgramManager::addImages(pi_device_binaries DeviceBinary) {
             createKernelArgMask(DeviceBinaryProperty(Info).asByteArray());
     }
 
+    const RTDeviceBinaryImage::PropertyRange &VFRange = Img->getVirtualFunctions();
+    if (VFRange.isAvailable()) {
+      for (const auto &Info : VFRange) {
+        if (std::string("exports-virtual-functions-set") == std::string(Info->Name)) {
+          auto prop = DeviceBinaryProperty(Info);
+          m_VFSet2BinImage[std::string(prop.asCString())] = Img.get();
+        }
+      }
+    }
+
     // Fill maps for kernel bundles
     std::lock_guard<std::mutex> KernelIDsGuard(m_KernelIDsMutex);
 
@@ -2251,6 +2261,26 @@ device_image_plain ProgramManager::build(const device_image_plain &DeviceImage,
     if (Img.getFormat() == PI_DEVICE_BINARY_TYPE_SPIRV &&
         !SYCLConfig<SYCL_DEVICELIB_NO_FALLBACK>::get())
       DeviceLibReqMask = getDeviceLibReqMask(Img);
+
+    const RTDeviceBinaryImage::PropertyRange &VFRange = Img.getVirtualFunctions();
+    if (VFRange.isAvailable()) {
+      for (const auto &Info : VFRange) {
+        if (std::string("uses-virtual-functions-set") == std::string(Info->Name)) {
+          auto prop = DeviceBinaryProperty(Info);
+          std::string list = prop.asCString();
+          size_t start = 0;
+          size_t stop = list.find_first_of(',');
+          do {
+            auto setName = list.substr(start, stop - start);
+            // TODO: find other device images which export setName
+            // TODO: filter out incompatible ones
+            // TODO: pass them down to 'build'
+            start = stop;
+            stop = list.find_first_of(',', start + 1);
+          } while (stop != std::string::npos);
+        }
+      }
+    }
 
     ProgramPtr BuiltProgram =
         build(std::move(ProgramManaged), ContextImpl, CompileOpts, LinkOpts,

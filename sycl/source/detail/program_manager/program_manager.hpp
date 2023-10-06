@@ -335,6 +335,8 @@ private:
   std::unordered_multimap<kernel_id, RTDeviceBinaryImage *>
       m_KernelIDs2BinImage;
 
+  std::unordered_map<std::string, RTDeviceBinaryImage *> m_VFSet2BinImage;
+
   // Maps device binary image to a vector of kernel ids in this image.
   // Using shared_ptr to avoid expensive copy of the vector.
   // The vector is initialized in addImages function and is supposed to be

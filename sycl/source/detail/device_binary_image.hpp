@@ -218,6 +218,8 @@ public:
   }
   const PropertyRange &getHostPipes() const { return HostPipes; }
 
+  const PropertyRange &getVirtualFunctions() const { return VirtualFunctions; }
+
   std::uintptr_t getImageID() const {
     assert(Bin && "Image ID is not available without a binary image.");
     return reinterpret_cast<std::uintptr_t>(Bin);
@@ -240,6 +242,7 @@ protected:
   RTDeviceBinaryImage::PropertyRange DeviceGlobals;
   RTDeviceBinaryImage::PropertyRange DeviceRequirements;
   RTDeviceBinaryImage::PropertyRange HostPipes;
+  RTDeviceBinaryImage::PropertyRange VirtualFunctions;
 };
 
 // Dynamically allocated device binary image, which de-allocates its binary
