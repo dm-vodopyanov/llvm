@@ -501,7 +501,7 @@ std::string saveModuleProperties(module_split::ModuleDesc &MD,
     // Virtual functions
     if (NamedMDNode *IC = M.getNamedMetadata("indirectly-callable")) {
       PropSet[PropSetRegTy::SYCL_VIRTUAL_FUNCTIONS].insert(
-          {"exports-virtual-functions-set",
+          {"virtual-functions-set",
            cast<MDString>(IC->getOperand(0)->getOperand(0))->getString()});
 
     } else if (NamedMDNode *CI = M.getNamedMetadata("calls-indirectly")) {
@@ -511,7 +511,7 @@ std::string saveModuleProperties(module_split::ModuleDesc &MD,
         V += Set;
       }
       PropSet[PropSetRegTy::SYCL_VIRTUAL_FUNCTIONS].insert(
-          {"uses-virtual-functions-sets", V});
+          {"calls-virtual-functions-set", V});
     }
   }
 

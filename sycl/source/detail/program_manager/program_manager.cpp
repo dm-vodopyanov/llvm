@@ -646,9 +646,11 @@ sycl::detail::pi::PiProgram ProgramManager::getBuiltPIProgram(
         !SYCLConfig<SYCL_DEVICELIB_NO_FALLBACK>::get())
       DeviceLibReqMask = getDeviceLibReqMask(Img);
 
+    std::vector<sycl::detail::pi::PiProgram> LinkPrograms;
     ProgramPtr BuiltProgram =
         build(std::move(ProgramManaged), ContextImpl, CompileOpts, LinkOpts,
-              getRawSyclObjImpl(Device)->getHandleRef(), DeviceLibReqMask);
+              getRawSyclObjImpl(Device)->getHandleRef(), DeviceLibReqMask,
+              LinkPrograms);
 
     emitBuiltProgramInfo(BuiltProgram.get(), ContextImpl);
 
@@ -1188,7 +1190,8 @@ getDeviceLibPrograms(const ContextImplPtr Context,
 ProgramManager::ProgramPtr ProgramManager::build(
     ProgramPtr Program, const ContextImplPtr Context,
     const std::string &CompileOptions, const std::string &LinkOptions,
-    const sycl::detail::pi::PiDevice &Device, uint32_t DeviceLibReqMask) {
+    const sycl::detail::pi::PiDevice &Device, uint32_t DeviceLibReqMask,
+    std::vector<sycl::detail::pi::PiProgram> ProgramsToLink) {
 
   if (DbgProgMgr > 0) {
     std::cerr << ">>> ProgramManager::build(" << Program.get() << ", "
@@ -1220,10 +1223,6 @@ ProgramManager::ProgramPtr ProgramManager::build(
     LinkPrograms = getDeviceLibPrograms(Context, Device, DeviceLibReqMask);
   }
 
-  // TODO: gather images which provide necessary virtual functions
-  // TODO: gather images which use the same virtual functions as the current
-  // one, if they are compatible with the target device
-
   static const char *ForceLinkEnv = std::getenv("SYCL_FORCE_LINK");
   static bool ForceLink = ForceLinkEnv && (*ForceLinkEnv == '1');
 
@@ -1247,6 +1246,8 @@ ProgramManager::ProgramPtr ProgramManager::build(
                                             &Device, CompileOptions.c_str(), 0,
                                             nullptr, nullptr, nullptr, nullptr);
   LinkPrograms.push_back(Program.get());
+  LinkPrograms.insert(LinkPrograms.end(), ProgramsToLink.begin(),
+                      ProgramsToLink.end());
 
   sycl::detail::pi::PiProgram LinkedProg = nullptr;
   sycl::detail::pi::PiResult Error =
@@ -1309,9 +1310,14 @@ void ProgramManager::addImages(pi_device_binaries DeviceBinary) {
     const RTDeviceBinaryImage::PropertyRange &VFRange = Img->getVirtualFunctions();
     if (VFRange.isAvailable()) {
       for (const auto &Info : VFRange) {
-        if (std::string("exports-virtual-functions-set") == std::string(Info->Name)) {
-          auto prop = DeviceBinaryProperty(Info);
-          m_VFSet2BinImage[std::string(prop.asCString())] = Img.get();
+        if (std::string("virtual-functions-set") == std::string(Info->Name)) {
+          auto Prop = DeviceBinaryProperty(Info);
+          m_VFSet2BinImage[std::string(Prop.asCString())].insert(Img.get());
+        }
+        if (std::string("dummy-image") == std::string(Info->Name)) {
+          if (auto Prop = DeviceBinaryProperty(Info);
+              strcmp(Prop.asCString(), "1") == 0)
+            m_DummyBinImages.insert(Img.get());
         }
       }
     }
@@ -2262,29 +2268,112 @@ device_image_plain ProgramManager::build(const device_image_plain &DeviceImage,
         !SYCLConfig<SYCL_DEVICELIB_NO_FALLBACK>::get())
       DeviceLibReqMask = getDeviceLibReqMask(Img);
 
-    const RTDeviceBinaryImage::PropertyRange &VFRange = Img.getVirtualFunctions();
+    const RTDeviceBinaryImage::PropertyRange &VFRange =
+        Img.getVirtualFunctions();
+    std::set<RTDeviceBinaryImage *> DeviceImagesToLink;
     if (VFRange.isAvailable()) {
       for (const auto &Info : VFRange) {
-        if (std::string("uses-virtual-functions-set") == std::string(Info->Name)) {
-          auto prop = DeviceBinaryProperty(Info);
-          std::string list = prop.asCString();
-          size_t start = 0;
-          size_t stop = list.find_first_of(',');
+        if (std::string("calls-virtual-functions-set") ==
+                std::string(Info->Name) ||
+            std::string("creates-virtual-functions-set") ==
+                std::string(Info->Name)) {
+          auto Prop = DeviceBinaryProperty(Info);
+          std::string List = Prop.asCString();
+          size_t Start = 0;
+          size_t Stop = List.find_first_of(',');
           do {
-            auto setName = list.substr(start, stop - start);
-            // TODO: find other device images which export setName
-            // TODO: filter out incompatible ones
-            // TODO: pass them down to 'build'
-            start = stop;
-            stop = list.find_first_of(',', start + 1);
-          } while (stop != std::string::npos);
+            auto SetName = List.substr(Start, Stop - Start);
+            if (std::string("calls-virtual-functions-set") ==
+                std::string(Info->Name)) {
+              for (const auto &BinImage : m_VFSet2BinImage[SetName]) {
+                // when shared libraries are involved, they could also provide
+                // some `indirectly_callable` functions in the same sets as
+                // application. This means that there could be more than one
+                // image registered with the same value of
+                // "virtual-functions-set" property.
+                try {
+                  if (compatibleWithDevice(BinImage, Devs[0]))
+                    DeviceImagesToLink.insert(BinImage);
+                } catch (sycl::runtime_error &E) {
+                  // ignore the exception if device image is not compatible
+                }
+              }
+            }
+            if (std::string("creates-virtual-functions-set") ==
+                std::string(Info->Name)) {
+              bool IsBinImageInserted = false;
+              for (const auto &BinImage : m_VFSet2BinImage[SetName]) {
+                try {
+                  if (compatibleWithDevice(BinImage, Devs[0]) &&
+                      m_DummyBinImages.find(BinImage) ==
+                          m_DummyBinImages.end()) {
+                    // found compatible device image without "dummy-image=1"
+                    // property in it
+                    DeviceImagesToLink.insert(BinImage);
+                    IsBinImageInserted = true;
+                  }
+                } catch (sycl::runtime_error &E) {
+                  // ignore the exception if device image is not compatible
+                }
+              }
+              if (!IsBinImageInserted) {
+                // compatible device image without "dummy-image=1" property
+                // wasn't found, so look for device image with the same
+                // "virtual-functions-set" property, but with "dummy-image=1"
+                // property on it
+                for (const auto &BinImage : m_VFSet2BinImage[SetName]) {
+                  if (m_DummyBinImages.find(BinImage) !=
+                      m_DummyBinImages.end()) {
+                    // found device image with "dummy-image=1" property in it
+                    DeviceImagesToLink.insert(BinImage);
+                    break;
+                  }
+                }
+              }
+            }
+            Start = Stop;
+            Stop = List.find_first_of(',', Start + 1);
+          } while (Stop != std::string::npos);
         }
       }
     }
 
+    std::vector<sycl::detail::pi::PiProgram> LinkPrograms;
+    for (const auto Img : DeviceImagesToLink) {
+      device_image_plain DevImagePlain =
+          getDeviceImageFromBinaryImage(Img, Context, Devs[0]);
+      const std::shared_ptr<detail::device_image_impl> &DeviceImageImpl =
+          detail::getSyclObjImpl(DevImagePlain);
+
+      SerializedObj ImgSpecConsts = DeviceImageImpl->get_spec_const_blob_ref();
+
+      // TODO: Add support for creating non-SPIRV programs from multiple
+      // devices.
+      if (DeviceImageImpl->get_bin_image_ref()->getFormat() !=
+              PI_DEVICE_BINARY_TYPE_SPIRV &&
+          Devs.size() > 1)
+        sycl::runtime_error(
+            "Creating a program from AOT binary for multiple device is not "
+            "supported",
+            PI_ERROR_INVALID_OPERATION);
+
+      auto [NativePrg, DeviceCodeWasInCache] = getOrCreatePIProgram(
+          *Img, Context, Devs[0], CompileOpts + LinkOpts, ImgSpecConsts);
+
+      if (!DeviceCodeWasInCache &&
+          DeviceImageImpl->get_bin_image_ref()->supportsSpecConstants())
+        setSpecializationConstants(DeviceImageImpl, NativePrg, Plugin);
+
+      ProgramPtr ProgramManaged(
+          NativePrg, Plugin->getPiPlugin().PiFunctionTable.piProgramRelease);
+
+      LinkPrograms.push_back(ProgramManaged.get());
+    }
+
     ProgramPtr BuiltProgram =
         build(std::move(ProgramManaged), ContextImpl, CompileOpts, LinkOpts,
-              getRawSyclObjImpl(Devs[0])->getHandleRef(), DeviceLibReqMask);
+              getRawSyclObjImpl(Devs[0])->getHandleRef(), DeviceLibReqMask,
+              LinkPrograms);
 
     emitBuiltProgramInfo(BuiltProgram.get(), ContextImpl);
 

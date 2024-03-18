@@ -310,7 +310,8 @@ private:
                    const std::string &CompileOptions,
                    const std::string &LinkOptions,
                    const sycl::detail::pi::PiDevice &Device,
-                   uint32_t DeviceLibReqMask);
+                   uint32_t DeviceLibReqMask,
+                   std::vector<sycl::detail::pi::PiProgram> ProgramsToLink);
   /// Dumps image to current directory
   void dumpImage(const RTDeviceBinaryImage &Img, uint32_t SequenceID = 0) const;
 
@@ -335,7 +336,10 @@ private:
   std::unordered_multimap<kernel_id, RTDeviceBinaryImage *>
       m_KernelIDs2BinImage;
 
-  std::unordered_map<std::string, RTDeviceBinaryImage *> m_VFSet2BinImage;
+  std::unordered_map<std::string, std::set<RTDeviceBinaryImage *>>
+      m_VFSet2BinImage;
+
+  std::set<RTDeviceBinaryImage *> m_DummyBinImages;
 
   // Maps device binary image to a vector of kernel ids in this image.
   // Using shared_ptr to avoid expensive copy of the vector.
